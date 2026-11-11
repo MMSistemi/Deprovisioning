@@ -1,628 +1,2768 @@
 # -*- coding: utf-8 -*-
-# App: Deprovisioning Consip – robusta ai file EN/IT
-# Autore: adattato per funzionare con intestazioni colonne in Italiano/English
 
 import re
 import csv
 import io
+import zipfile
 from datetime import datetime
 from typing import List, Set, Tuple, Optional
 
 import streamlit as st
 import pandas as pd
 
-# ==============
-# Costanti CSV
-# ==============
 
-# Header CSV per lo Step 1 (Utente)
-HEADER_MODIFICA = [
-    "sAMAccountName", "Creation", "OU", "Name", "DisplayName", "cn", "GivenName", "Surname",
-    "employeeNumber", "employeeID", "department", "Description", "passwordNeverExpired",
-    "ExpireDate", "userprincipalname", "mail", "mobile", "RimozioneGruppo", "InserimentoGruppo",
-    "disable", "moveToOU", "telephoneNumber", "company"
+# ============================================================
+# CONFIGURAZIONE PAGINA
+# ============================================================
+
+st.set_page_config(
+    page_title="Deprovisioning Utente",
+    layout="wide"
+)
+
+st.title("Deprovisioning Utente")
+
+
+# ============================================================
+# COSTANTI CSV
+# ============================================================
+
+HEADER_UTENTE = [
+    "sAMAccountName",
+    "Creation",
+    "OU",
+    "Name",
+    "DisplayName",
+    "cn",
+    "GivenName",
+    "Surname",
+    "employeeNumber",
+    "employeeID",
+    "department",
+    "Description",
+    "passwordNeverExpired",
+    "ExpireDate",
+    "userprincipalname",
+    "mail",
+    "mobile",
+    "RimozioneGruppo",
+    "InserimentoGruppo",
+    "disable",
+    "moveToOU",
+    "telephoneNumber",
+    "company"
 ]
 
-# Header CSV per Device
-HEADER_DEVICE = [
-    "Computer", "OU", "add_mail", "remove_mail",
-    "add_mobile", "remove_mobile",
-    "add_userprincipalname", "remove_userprincipalname",
-    "disable", "moveToOU"
+
+HEADER_COMPUTER = [
+    "Computer",
+    "OU",
+    "add_mail",
+    "remove_mail",
+    "add_mobile",
+    "remove_mobile",
+    "add_userprincipalname",
+    "remove_userprincipalname",
+    "disable",
+    "moveToOU"
 ]
 
-# =========================
-# Utility per colonne EN/IT
-# =========================
+
+# ============================================================
+# CANDIDATI COLONNE EN/IT
+# ============================================================
+
+# ------------------------------------------------------------
+# Membri e gruppi AD
+# ------------------------------------------------------------
+
+CAND_MG_MEMBER = [
+    "Member",
+    "Membro",
+    "MemberSamAccountName",
+    "MembroSamAccountName",
+    "SamAccountName",
+    "sAMAccountName",
+    "MemberUserPrincipalName",
+    "UserPrincipalNameMembro",
+    "userPrincipalName",
+    "UPN"
+]
+
+
+CAND_MG_GROUP = [
+    "Group",
+    "Gruppo",
+    "GroupName",
+    "NomeGruppo",
+    "DisplayName",
+    "NomeVisualizzato",
+    "cn",
+    "CN",
+    "Name",
+    "Nome"
+]
+
+
+# ------------------------------------------------------------
+# Distribution List
+# ------------------------------------------------------------
+
+CAND_DL_GROUP_ADDR = [
+    "Distribution Group Primary SMTP address",
+    "PrimarySmtpAddress",
+    "Primary SMTP address",
+    "SMTP",
+    "Email",
+    "E-mail",
+    "GroupName",
+    "DisplayName",
+    "Group",
+    "Gruppo",
+    "NomeGruppo",
+    "Nome",
+    "NomeVisualizzato"
+]
+
+
+CAND_DL_MEMBER = [
+    "Member Alias",
+    "Alias Membro",
+    "MemberAlias",
+    "MemberUserPrincipalName",
+    "UserPrincipalNameMembro",
+    "Member",
+    "Membro",
+    "userPrincipalName",
+    "UPN",
+    "MemberEmail",
+    "EmailMembro",
+    "Email",
+    "E-mail"
+]
+
+
+CAND_DL_GROUP = [
+    "Distribution Group",
+    "Gruppo di distribuzione",
+    "Group",
+    "Gruppo",
+    "GroupName",
+    "NomeGruppo",
+    "DisplayName",
+    "Nome",
+    "NomeVisualizzato"
+]
+
+
+# ------------------------------------------------------------
+# Shared Mailbox
+# ------------------------------------------------------------
+
+CAND_SM_MEMBER = [
+    "MemberUserPrincipalName",
+    "UserPrincipalNameMembro",
+    "Member",
+    "Membro",
+    "userPrincipalName",
+    "UPN",
+    "MemberEmail",
+    "EmailMembro",
+    "Member Mail",
+    "Email",
+    "E-mail"
+]
+
+
+CAND_SM_MAILBOX_ADDR = [
+    "EmailAddress",
+    "PrimarySmtpAddress",
+    "Primary SMTP address",
+    "SMTP",
+    "Email",
+    "E-mail",
+    "DisplayName",
+    "Mailbox",
+    "SharedMailbox",
+    "Cassetta postale",
+    "Casella condivisa"
+]
+
+
+CAND_SM_GROUP_NAME = [
+    "Group",
+    "Gruppo",
+    "DisplayName",
+    "Nome",
+    "NomeVisualizzato",
+    "Mailbox",
+    "SharedMailbox",
+    "Cassetta postale",
+    "Casella condivisa",
+    "PrimarySmtpAddress",
+    "SMTP",
+    "Email",
+    "E-mail"
+]
+
+
+# ------------------------------------------------------------
+# Entra ID
+# ------------------------------------------------------------
+
+CAND_ENTRA_MEMBER_UPN = [
+    "MemberUserPrincipalName",
+    "UserPrincipalNameMembro",
+    "userPrincipalName",
+    "UPN",
+    "Email",
+    "E-mail"
+]
+
+
+CAND_ENTRA_GROUP_NAME = [
+    "GroupName",
+    "NomeGruppo",
+    "DisplayName",
+    "Nome",
+    "NomeVisualizzato",
+    "Group",
+    "Gruppo"
+]
+
+
+# ------------------------------------------------------------
+# Device
+# ------------------------------------------------------------
+
+CAND_DEV_ENABLED = [
+    "Enabled",
+    "Abilitato"
+]
+
+
+CAND_DEV_DESC = [
+    "Description",
+    "Descrizione"
+]
+
+
+CAND_DEV_NAME = [
+    "Name",
+    "Nome",
+    "Computer",
+    "NomeComputer"
+]
+
+
+CAND_DEV_MAIL = [
+    "Mail",
+    "Email",
+    "E-mail",
+    "Posta"
+]
+
+
+CAND_DEV_MOBILE = [
+    "Mobile",
+    "Cellulare",
+    "Telefono",
+    "Phone"
+]
+
+
+CAND_DEV_UPN = [
+    "userPrincipalName",
+    "UPN",
+    "NomePrincipaleUtente"
+]
+
+
+# ============================================================
+# FUNZIONI DI NORMALIZZAZIONE
+# ============================================================
 
 _SPACES_UNDERS = re.compile(r"[\s_]+")
 
 
-def _norm_key(s: str) -> str:
-    """Normalizza una chiave colonna (minuscolo, senza spazi/underscore)."""
-    return _SPACES_UNDERS.sub("", str(s).strip().lower())
+def _norm_key(value: str) -> str:
+    """
+    Normalizza il nome di una colonna:
+    - minuscolo;
+    - rimozione spazi;
+    - rimozione underscore.
+    """
+
+    return _SPACES_UNDERS.sub(
+        "",
+        str(value).strip().lower()
+    )
 
 
-def _find_col(df: pd.DataFrame, candidates: List[str]) -> Optional[str]:
+def _find_col(
+    df: pd.DataFrame,
+    candidates: List[str]
+) -> Optional[str]:
     """
-    Ritorna il nome della prima colonna di df che corrisponde ad almeno
-    uno dei 'candidates' (case/space/underscore insensitive).
-    Tenta prima match esatto normalizzato, poi 'contains'.
+    Cerca una colonna tra quelle candidate.
+
+    Prima prova una corrispondenza esatta normalizzata.
+    Successivamente prova una corrispondenza parziale.
     """
+
     if df is None or df.empty:
         return None
-    norm_map = {_norm_key(c): c for c in df.columns}
-    # tentativo 1: match esatto normalizzato
-    for cand in candidates:
-        key = _norm_key(cand)
-        if key in norm_map:
-            return norm_map[key]
-    # tentativo 2: contains
-    for cand in candidates:
-        ckey = _norm_key(cand)
-        for col in df.columns:
-            if ckey in _norm_key(col):
-                return col
+
+    norm_map = {
+        _norm_key(column): column
+        for column in df.columns
+    }
+
+    # Match esatto normalizzato
+    for candidate in candidates:
+
+        normalized_candidate = _norm_key(
+            candidate
+        )
+
+        if normalized_candidate in norm_map:
+            return norm_map[
+                normalized_candidate
+            ]
+
+    # Match parziale
+    for candidate in candidates:
+
+        normalized_candidate = _norm_key(
+            candidate
+        )
+
+        for column in df.columns:
+
+            normalized_column = _norm_key(
+                column
+            )
+
+            if normalized_candidate in normalized_column:
+                return column
+
     return None
 
 
-def _find_col_preferred(df: pd.DataFrame, preferred: List[str], fallback: List[str]) -> Optional[str]:
-    """Cerca prima nelle 'preferred' (in ordine), se non trova usa una delle fallback."""
+def _find_col_preferred(
+    df: pd.DataFrame,
+    preferred: List[str],
+    fallback: List[str]
+) -> Optional[str]:
+    """
+    Cerca prima nelle colonne preferite.
+    Se non trova nulla utilizza le colonne di fallback.
+    """
+
     if df is None or df.empty:
         return None
-    for cand in preferred:
-        col = _find_col(df, [cand])
-        if col:
-            return col
-    return _find_col(df, fallback)
+
+    for candidate in preferred:
+
+        column = _find_col(
+            df,
+            [candidate]
+        )
+
+        if column:
+            return column
+
+    return _find_col(
+        df,
+        fallback
+    )
 
 
-def _get_any(df: pd.DataFrame, candidates: List[str]) -> pd.Series:
-    """Ritorna la Series della prima colonna trovata tra i candidates; se non c'è, solleva KeyError."""
-    col = _find_col(df, candidates)
-    if not col:
-        raise KeyError(f"Columns not found: {candidates}")
-    return df[col]
-
-
-def _require_any(df: pd.DataFrame, required_map: dict, context: str) -> Tuple[bool, List[str]]:
+def _get_any(
+    df: pd.DataFrame,
+    candidates: List[str]
+) -> pd.Series:
     """
-    Verifica che per ogni chiave di required_map almeno una delle colonne candidate esista.
-    Ritorna (ok, missing_list).
+    Restituisce la Series corrispondente alla prima
+    colonna trovata tra quelle candidate.
     """
+
+    column = _find_col(
+        df,
+        candidates
+    )
+
+    if not column:
+        raise KeyError(
+            f"Colonne non trovate: {candidates}"
+        )
+
+    return df[column]
+
+
+def _require_any(
+    df: pd.DataFrame,
+    required_map: dict
+) -> Tuple[bool, List[str]]:
+    """
+    Verifica la presenza delle colonne logiche richieste.
+    """
+
     missing = []
-    for logical_name, cand_list in required_map.items():
-        if _find_col(df, cand_list) is None:
-            missing.append(logical_name)
-    return (len(missing) == 0, missing)
+
+    for logical_name, candidates in required_map.items():
+
+        if _find_col(
+            df,
+            candidates
+        ) is None:
+
+            missing.append(
+                logical_name
+            )
+
+    return (
+        len(missing) == 0,
+        missing
+    )
 
 
-def _clean_series_to_list(series: pd.Series) -> List[str]:
+def _clean_series_to_list(
+    series: pd.Series
+) -> List[str]:
     """
-    Converte in lista di stringhe uniche/ordinate, rimuovendo vuoti.
+    Converte una Series in una lista:
+    - senza NaN;
+    - senza valori vuoti;
+    - senza duplicati;
+    - ordinata alfabeticamente.
     """
+
     if series is None or series.empty:
         return []
-    vals = [str(x).strip() for x in series.dropna().astype(str).tolist()]
-    vals = [v for v in vals if v != ""]
-    # unici e ordinati (case-insensitive)
-    return sorted(list(set(vals)), key=lambda x: x.lower())
+
+    values = [
+        str(value).strip()
+        for value in series
+        .dropna()
+        .astype(str)
+        .tolist()
+    ]
+
+    values = [
+        value
+        for value in values
+        if value
+    ]
+
+    unique_values = {}
+
+    for value in values:
+
+        normalized_value = value.lower()
+
+        if normalized_value not in unique_values:
+
+            unique_values[
+                normalized_value
+            ] = value
+
+    return sorted(
+        unique_values.values(),
+        key=lambda value: value.lower()
+    )
 
 
-def _read_excel_or_empty(uploaded_file) -> pd.DataFrame:
-    """Legge un Excel con engine openpyxl; se non presente o errore, ritorna DF vuoto."""
-    if not uploaded_file:
-        return pd.DataFrame()
-    try:
-        return pd.read_excel(uploaded_file, engine="openpyxl")
-    except Exception:
-        try:
-            return pd.read_excel(uploaded_file)
-        except Exception:
-            return pd.DataFrame()
-
-
-# =========================
-# Candidati colonne EN/IT
-# =========================
-
-# Membri / gruppi (export AD – "Estr_MembriGruppi")
-CAND_MG_MEMBER = [
-    "Member", "Membro",
-    "MemberSamAccountName", "MembroSamAccountName",
-    "SamAccountName", "sAMAccountName",
-    "MemberUserPrincipalName", "UserPrincipalNameMembro",
-    "userPrincipalName", "UPN",
-]
-CAND_MG_GROUP = [
-    "Group", "Gruppo",
-    "GroupName", "NomeGruppo",
-    "DisplayName", "NomeVisualizzato",
-    "cn", "CN", "Name", "Nome"
-]
-
-# Distribution List (DL) file
-# — nome DL preferito = Primary SMTP address (come richiesto)
-CAND_DL_GROUP_ADDR = [
-    "Distribution Group Primary SMTP address",   # preferito
-    "PrimarySmtpAddress", "SMTP", "Email",
-    "GroupName", "DisplayName", "Group", "Gruppo", "NomeGruppo",
-    "Nome", "NomeVisualizzato"
-]
-# — colonna membro con priorità su "Member Alias" (come richiesto)
-CAND_DL_MEMBER = [
-    "Member Alias", "Alias Membro", "MemberAlias",  # richiesto
-    "MemberUserPrincipalName", "UserPrincipalNameMembro",
-    "Member", "Membro",
-    "userPrincipalName", "UPN",
-    "MemberEmail", "EmailMembro", "Email", "E-mail"
-]
-# fallback "generico" per nomi gruppo (riuso funzioni esistenti)
-CAND_DL_GROUP = [
-    "Distribution Group", "Gruppo di distribuzione",
-    "Group", "Gruppo",
-    "GroupName", "NomeGruppo",
-    "DisplayName", "Nome", "NomeVisualizzato"
-]
-
-# Shared Mailbox / SM file
-# — membership via colonna member (incluso "Member")
-CAND_SM_MEMBER = [
-    "MemberUserPrincipalName", "UserPrincipalNameMembro",
-    "Member", "Membro",
-    "userPrincipalName", "UPN",
-    "MemberEmail", "EmailMembro", "Member Mail", "Email"
-]
-# — identificatore casella preferito = EmailAddress (come richiesto)
-CAND_SM_MAILBOX_ADDR = [
-    "EmailAddress",  # preferito
-    "PrimarySmtpAddress", "SMTP", "Email",
-    "DisplayName", "Mailbox", "SharedMailbox",
-    "Cassetta postale", "Casella condivisa"
-]
-# (già presente) gruppo/nome SM fallback generico
-CAND_SM_GROUP_NAME = [
-    "Group", "Gruppo",
-    "DisplayName", "Nome", "NomeVisualizzato",
-    "Mailbox", "SharedMailbox", "Cassetta postale", "Casella condivisa",
-    "PrimarySmtpAddress", "SMTP", "Email"
-]
-
-# Entra (gruppi utente)
-CAND_ENTRA_MEMBER_UPN = [
-    "MemberUserPrincipalName", "UserPrincipalNameMembro",
-    "userPrincipalName", "UPN",
-    "Email", "E-mail"
-]
-CAND_ENTRA_GROUP_NAME = [
-    "GroupName", "NomeGruppo",
-    "DisplayName", "Nome", "NomeVisualizzato",
-    "Group", "Gruppo"
-]
-
-# Device export
-CAND_DEV_ENABLED = ["Enabled", "Abilitato"]
-CAND_DEV_DESC = ["Description", "Descrizione"]
-CAND_DEV_NAME = ["Name", "Nome", "Computer", "NomeComputer"]
-CAND_DEV_MAIL = ["Mail", "Email", "E-mail", "Posta"]
-CAND_DEV_MOBILE = ["Mobile", "Cellulare", "Telefono", "Phone"]
-CAND_DEV_UPN = ["userPrincipalName", "UPN", "NomePrincipaleUtente"]
-
-
-# ====================================================
-# Funzione per comporre la stringa di rimozione gruppi
-# ====================================================
-
-def estrai_rimozione_gruppi(sam_lower: str, mg_df: pd.DataFrame) -> str:
+def unique_in_order(
+    values: List[str]
+) -> List[str]:
     """
-    Ritorna stringa gruppi AD (da "Estr_MembriGruppi") da rimuovere, separata da ';',
-    con esclusioni note (Domain Users/Utenti del dominio).
-    Supporta intestazioni EN/IT.
+    Rimuove i duplicati mantenendo l'ordine originale.
     """
-    if mg_df is None or mg_df.empty:
-        return ""
 
-    required = {
-        "member": CAND_MG_MEMBER,
-        "group": CAND_MG_GROUP
-    }
-    ok, missing = _require_any(mg_df, required, "Estr_MembriGruppi")
-    if not ok:
-        # Se mancano colonne, non blocchiamo l'esecuzione: ritorniamo stringa vuota
-        st.warning(f"Nel file 'Estr_MembriGruppi' non ho trovato i campi: {', '.join(missing)}")
-        return ""
+    result = []
+    seen = set()
 
-    member_col = _get_any(mg_df, CAND_MG_MEMBER)
-    group_col = _get_any(mg_df, CAND_MG_GROUP)
+    for value in values:
 
-    # Confronta sia sAMAccountName sia UPN (per tolleranza)
-    user_email = f"{sam_lower}@consip.it"
-    member_vals = member_col.astype(str).str.strip().str.lower()
-    mask = (member_vals == sam_lower) | (member_vals == user_email)
+        clean_value = str(
+            value
+        ).strip()
 
-    groups_series = group_col[mask].dropna().astype(str)
+        normalized_value = clean_value.lower()
 
-    # Escludi gruppi generici/di default
-    EXCLUDE = {"domain users", "utenti del dominio"}
-    filtered = [g for g in groups_series if g.strip() and g.strip().lower() not in EXCLUDE]
+        if (
+            clean_value
+            and normalized_value not in seen
+        ):
 
-    filtered = sorted(set(filtered), key=lambda x: x.lower())
-    if not filtered:
-        return ""
+            result.append(
+                clean_value
+            )
 
-    joined = ";".join(filtered)
-    # Se ci sono spazi, racchiudi l'intera stringa nelle virgolette per sicurezza
-    return f"\"{joined}\"" if any(" " in g for g in filtered) else joined
+            seen.add(
+                normalized_value
+            )
 
-
-# ======================================================
-# Helper: estrai nomi gruppi "generici" da un DataFrame
-# ======================================================
-
-def extract_group_names_from_df(df: pd.DataFrame) -> Set[str]:
-    """
-    Prova a estrarre nomi di gruppi da dataframe generici (DL/SM/MG).
-    Cerca prima colonne 'GROUP/GROUPNAME/DISPLAYNAME', altrimenti 'NAME/NOME'.
-    """
-    if df is None or df.empty:
-        return set()
-
-    # 1) tenta group name esplicito
-    group_col_name = _find_col(df, CAND_DL_GROUP + CAND_MG_GROUP + CAND_SM_GROUP_NAME)
-    if group_col_name:
-        series = df[group_col_name]
-    else:
-        # 2) fallback su 'name' / 'nome'
-        fallback = _find_col(df, ["Name", "Nome", "DisplayName", "NomeVisualizzato"])
-        if not fallback:
-            return set()
-        series = df[fallback]
-
-    result = set([str(x).strip() for x in series.dropna().astype(str).tolist() if str(x).strip() != ""])
     return result
 
 
-# =======================================================
-# Helper: estrai gruppi Entra per user_email/UPN (EN/IT)
-# =======================================================
+# ============================================================
+# LETTURA FILE EXCEL
+# ============================================================
 
-def extract_entra_groups_for_user(entra_df: pd.DataFrame, user_email_or_upn: str) -> Set[str]:
+def _read_excel_or_empty(
+    uploaded_file
+) -> pd.DataFrame:
     """
-    Cerca i gruppi Entra a cui l'utente (UPN/email) appartiene.
-    Supporta intestazioni EN/IT: MemberUserPrincipalName/UserPrincipalNameMembro + GroupName/NomeGruppo/DisplayName
+    Legge un file Excel.
+
+    In caso di file mancante o errore,
+    restituisce un DataFrame vuoto.
     """
-    if entra_df is None or entra_df.empty:
-        return set()
+
+    if not uploaded_file:
+        return pd.DataFrame()
+
+    try:
+
+        uploaded_file.seek(0)
+
+        return pd.read_excel(
+            uploaded_file,
+            engine="openpyxl"
+        )
+
+    except Exception:
+
+        try:
+
+            uploaded_file.seek(0)
+
+            return pd.read_excel(
+                uploaded_file
+            )
+
+        except Exception as error:
+
+            st.warning(
+                "Non è stato possibile leggere il file "
+                f"'{uploaded_file.name}': {error}"
+            )
+
+            return pd.DataFrame()
+
+
+# ============================================================
+# GESTIONE STRINGHE UTENTE
+# ============================================================
+
+def normalize_sam(
+    sam: str
+) -> str:
+    """
+    Normalizza lo sAMAccountName.
+    """
+
+    return str(
+        sam
+    ).strip().lower()
+
+
+def get_clean_sam(
+    sam: str
+) -> str:
+    """
+    Rimuove il suffisso .ext dallo sAMAccountName.
+    """
+
+    sam_lower = normalize_sam(
+        sam
+    )
+
+    if sam_lower.endswith(
+        ".ext"
+    ):
+
+        return sam_lower[:-4]
+
+    return sam_lower
+
+
+def infer_nome_cognome_from_sam(
+    sam: str
+) -> Tuple[str, str]:
+    """
+    Prova a ricavare nome e cognome da uno sAMAccountName
+    nel formato nome.cognome oppure iniziale.cognome.
+    """
+
+    clean_sam = get_clean_sam(
+        sam
+    )
+
+    parts = clean_sam.split(
+        ".",
+        1
+    )
+
+    if len(parts) == 2:
+
+        nome = parts[0].strip().title()
+        cognome = parts[1].strip().title()
+
+        return nome, cognome
+
+    return "", clean_sam.title()
+
+
+def build_display_name(
+    sam: str,
+    nome: str = "",
+    cognome: str = ""
+) -> str:
+    """
+    Costruisce il nome da utilizzare negli oggetti,
+    nei titoli e nei nomi file.
+    """
+
+    nome = str(
+        nome
+    ).strip().title()
+
+    cognome = str(
+        cognome
+    ).strip().title()
+
+    if nome and cognome:
+
+        display_name = (
+            f"{cognome} {nome}"
+        )
+
+    else:
+
+        inferred_nome, inferred_cognome = (
+            infer_nome_cognome_from_sam(
+                sam
+            )
+        )
+
+        if inferred_nome and inferred_cognome:
+
+            display_name = (
+                f"{inferred_cognome} "
+                f"{inferred_nome}"
+            )
+
+        else:
+
+            display_name = (
+                get_clean_sam(
+                    sam
+                ).title()
+            )
+
+    if normalize_sam(
+        sam
+    ).endswith(
+        ".ext"
+    ):
+
+        display_name += " (esterno)"
+
+    return display_name
+
+
+def build_file_person_name(
+    sam: str,
+    nome: str = "",
+    cognome: str = ""
+) -> str:
+    """
+    Genera il nome persona da usare nei nomi file.
+    """
+
+    nome = str(
+        nome
+    ).strip().title()
+
+    cognome = str(
+        cognome
+    ).strip().title()
+
+    if nome and cognome:
+
+        return f"{cognome} {nome}"
+
+    inferred_nome, inferred_cognome = (
+        infer_nome_cognome_from_sam(
+            sam
+        )
+    )
+
+    if inferred_nome and inferred_cognome:
+
+        return (
+            f"{inferred_cognome} "
+            f"{inferred_nome}"
+        )
+
+    return get_clean_sam(
+        sam
+    )
+
+
+def sanitize_filename_part(
+    value: str
+) -> str:
+    """
+    Rimuove dai nomi file i caratteri non compatibili.
+    """
+
+    value = re.sub(
+        r'[\\/:*?"<>|]',
+        "",
+        str(value)
+    )
+
+    value = re.sub(
+        r"\s+",
+        " ",
+        value
+    )
+
+    return value.strip()
+
+
+# ============================================================
+# COSTRUZIONE CSV
+# ============================================================
+
+def auto_quote(
+    fields,
+    quotechar='"',
+    predicate=lambda value: " " in value
+):
+    """
+    Racchiude tra doppi apici ogni valore
+    che contiene almeno uno spazio.
+    """
+
+    output = []
+
+    for field in fields:
+
+        value = str(
+            field
+        )
+
+        if predicate(
+            value
+        ):
+
+            escaped_value = value.replace(
+                quotechar,
+                quotechar * 2
+            )
+
+            output.append(
+                f"{quotechar}"
+                f"{escaped_value}"
+                f"{quotechar}"
+            )
+
+        else:
+
+            output.append(
+                value
+            )
+
+    return output
+
+
+def prepara_csv_standard(
+    row,
+    header
+) -> str:
+    """
+    Costruisce un CSV mantenendo la regola esistente:
+    i campi contenenti spazi vengono racchiusi
+    tra doppi apici.
+    """
+
+    buffer = io.StringIO()
+
+    writer = csv.writer(
+        buffer,
+        quoting=csv.QUOTE_NONE,
+        escapechar="\\",
+        lineterminator="\n"
+    )
+
+    quoted_row = auto_quote(
+        row,
+        quotechar='"',
+        predicate=lambda value: " " in str(value)
+    )
+
+    writer.writerow(
+        header
+    )
+
+    writer.writerow(
+        quoted_row
+    )
+
+    return buffer.getvalue()
+
+
+def prepara_csv_device(
+    row,
+    include_eof=True
+) -> str:
+    """
+    Costruisce il CSV del computer.
+
+    La riga EOF viene mantenuta come controllo per evitare
+    spostamenti accidentali dei PC nella OU dei dismessi.
+    """
+
+    buffer = io.StringIO()
+
+    writer = csv.writer(
+        buffer,
+        quoting=csv.QUOTE_NONE,
+        escapechar="\\",
+        lineterminator="\n"
+    )
+
+    quoted_row = auto_quote(
+        row,
+        quotechar='"',
+        predicate=lambda value: " " in str(value)
+    )
+
+    writer.writerow(
+        HEADER_COMPUTER
+    )
+
+    writer.writerow(
+        quoted_row
+    )
+
+    if include_eof:
+
+        eof_row = [
+            (
+                "EOF-riga lasciata appositamente scritta così "
+                "per verificare che nessun PC sia andato "
+                "nella OU/dismessi/computer"
+            )
+        ]
+
+        eof_row.extend(
+            [""] * (
+                len(HEADER_COMPUTER) - 1
+            )
+        )
+
+        quoted_eof_row = auto_quote(
+            eof_row,
+            quotechar='"',
+            predicate=lambda value: " " in str(value)
+        )
+
+        writer.writerow(
+            quoted_eof_row
+        )
+
+    return buffer.getvalue()
+
+
+# ============================================================
+# RICERCA UTENTE NEI FILE
+# ============================================================
+
+def build_user_candidates(
+    sam: str
+) -> Set[str]:
+    """
+    Genera i possibili identificativi dell'utente.
+    """
+
+    sam_lower = normalize_sam(
+        sam
+    )
+
+    clean_sam = get_clean_sam(
+        sam
+    )
+
+    candidates = {
+        sam_lower,
+        clean_sam,
+        f"{sam_lower}@consip.it",
+        f"{clean_sam}@consip.it"
+    }
+
+    return {
+        candidate.lower()
+        for candidate in candidates
+        if candidate
+    }
+
+
+def build_member_mask(
+    series: pd.Series,
+    sam: str
+) -> pd.Series:
+    """
+    Cerca l'utente in una colonna membership.
+
+    Gestisce:
+    - sAMAccountName;
+    - UPN;
+    - alias;
+    - celle con più membri separati da ; , spazi o ritorni a capo.
+    """
+
+    if series is None or series.empty:
+
+        return pd.Series(
+            False,
+            index=series.index
+            if series is not None
+            else None
+        )
+
+    candidates = build_user_candidates(
+        sam
+    )
+
+    normalized_series = (
+        series
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .str.lower()
+    )
+
+    exact_mask = normalized_series.isin(
+        candidates
+    )
+
+    if exact_mask.any():
+        return exact_mask
+
+    escaped_candidates = [
+        re.escape(
+            candidate
+        )
+        for candidate in candidates
+    ]
+
+    pattern = (
+        r"(?:^|[;,\s])(?:"
+        + "|".join(
+            escaped_candidates
+        )
+        + r")(?:$|[;,\s])"
+    )
+
+    return normalized_series.str.contains(
+        pattern,
+        regex=True,
+        na=False
+    )
+
+
+# ============================================================
+# ESTRAZIONE GRUPPI AD
+# ============================================================
+
+def estrai_rimozione_gruppi(
+    sam: str,
+    mg_df: pd.DataFrame
+) -> Tuple[List[str], List[str]]:
+    """
+    Estrae i gruppi AD da rimuovere.
+
+    Restituisce:
+    - lista gruppi AD;
+    - lista avvisi.
+    """
+
+    warnings = []
+
+    if mg_df is None or mg_df.empty:
+
+        warnings.append(
+            "Non è stato caricato il file "
+            "Estr_MembriGruppi."
+        )
+
+        return [], warnings
 
     required = {
-        "member_upn": CAND_ENTRA_MEMBER_UPN,
-        "group_name": CAND_ENTRA_GROUP_NAME
+        "membro": CAND_MG_MEMBER,
+        "gruppo": CAND_MG_GROUP
     }
-    ok, missing = _require_any(entra_df, required, "Entra")
+
+    ok, missing = _require_any(
+        mg_df,
+        required
+    )
+
     if not ok:
-        st.warning(f"Nel file 'Entra' mancano i campi: {', '.join(missing)}")
+
+        warnings.append(
+            "Nel file Estr_MembriGruppi non sono stati "
+            "trovati i campi: "
+            + ", ".join(
+                missing
+            )
+            + "."
+        )
+
+        return [], warnings
+
+    member_column_name = _find_col(
+        mg_df,
+        CAND_MG_MEMBER
+    )
+
+    group_column_name = _find_col(
+        mg_df,
+        CAND_MG_GROUP
+    )
+
+    member_mask = build_member_mask(
+        mg_df[
+            member_column_name
+        ],
+        sam
+    )
+
+    groups = _clean_series_to_list(
+        mg_df.loc[
+            member_mask,
+            group_column_name
+        ]
+    )
+
+    excluded_groups = {
+        "domain users",
+        "utenti del dominio"
+    }
+
+    groups = [
+        group
+        for group in groups
+        if group.strip().lower()
+        not in excluded_groups
+    ]
+
+    groups = unique_in_order(
+        groups
+    )
+
+    if not groups:
+
+        warnings.append(
+            "Non sono stati trovati gruppi AD "
+            "da rimuovere per l'utente indicato."
+        )
+
+    return groups, warnings
+
+
+# ============================================================
+# ESTRAZIONE DISTRIBUTION LIST
+# ============================================================
+
+def extract_dl_for_user(
+    dl_df: pd.DataFrame,
+    sam: str
+) -> Tuple[List[str], List[str]]:
+    """
+    Estrae le Distribution List associate all'utente.
+    """
+
+    warnings = []
+
+    if dl_df is None or dl_df.empty:
+
+        warnings.append(
+            "Non è stato caricato il file DL."
+        )
+
+        return [], warnings
+
+    group_column = _find_col_preferred(
+        dl_df,
+        CAND_DL_GROUP_ADDR,
+        CAND_DL_GROUP
+    )
+
+    member_column = _find_col(
+        dl_df,
+        CAND_DL_MEMBER
+    )
+
+    if not member_column:
+
+        warnings.append(
+            "Nel file DL non è stata trovata "
+            "la colonna del membro."
+        )
+
+    if not group_column:
+
+        warnings.append(
+            "Nel file DL non è stata trovata "
+            "la colonna della Distribution List."
+        )
+
+    if not member_column or not group_column:
+        return [], warnings
+
+    member_mask = build_member_mask(
+        dl_df[
+            member_column
+        ],
+        sam
+    )
+
+    dl_list = _clean_series_to_list(
+        dl_df.loc[
+            member_mask,
+            group_column
+        ]
+    )
+
+    if not dl_list:
+
+        warnings.append(
+            "Non sono state trovate Distribution List "
+            "associate all'utente indicato."
+        )
+
+    return dl_list, warnings
+
+
+# ============================================================
+# ESTRAZIONE SHARED MAILBOX
+# ============================================================
+
+def extract_sm_for_user(
+    sm_df: pd.DataFrame,
+    sam: str
+) -> Tuple[List[str], List[str]]:
+    """
+    Estrae le Shared Mailbox associate all'utente.
+    """
+
+    warnings = []
+
+    if sm_df is None or sm_df.empty:
+
+        warnings.append(
+            "Non è stato caricato il file SM."
+        )
+
+        return [], warnings
+
+    member_column = _find_col(
+        sm_df,
+        CAND_SM_MEMBER
+    )
+
+    mailbox_column = _find_col_preferred(
+        sm_df,
+        CAND_SM_MAILBOX_ADDR,
+        CAND_SM_GROUP_NAME
+    )
+
+    if not member_column:
+
+        warnings.append(
+            "Nel file SM non è stata trovata "
+            "la colonna del membro."
+        )
+
+    if not mailbox_column:
+
+        warnings.append(
+            "Nel file SM non è stata trovata "
+            "la colonna della Shared Mailbox."
+        )
+
+    if not member_column or not mailbox_column:
+        return [], warnings
+
+    member_mask = build_member_mask(
+        sm_df[
+            member_column
+        ],
+        sam
+    )
+
+    sm_list = _clean_series_to_list(
+        sm_df.loc[
+            member_mask,
+            mailbox_column
+        ]
+    )
+
+    if not sm_list:
+
+        warnings.append(
+            "Non sono state trovate Shared Mailbox "
+            "associate all'utente indicato."
+        )
+
+    return sm_list, warnings
+
+
+# ============================================================
+# ESTRAZIONE GRUPPI GENERICI
+# ============================================================
+
+def extract_group_names_from_df(
+    df: pd.DataFrame,
+    candidates: List[str]
+) -> Set[str]:
+    """
+    Estrae tutti i nomi dei gruppi presenti in un DataFrame.
+    """
+
+    if df is None or df.empty:
         return set()
 
-    member_col = _get_any(entra_df, CAND_ENTRA_MEMBER_UPN).astype(str).str.strip().str.lower()
-    group_series = _get_any(entra_df, CAND_ENTRA_GROUP_NAME)
+    group_column = _find_col(
+        df,
+        candidates
+    )
 
-    target = user_email_or_upn.strip().lower()
-    mask = member_col == target
-    if not mask.any():
+    if not group_column:
         return set()
 
-    groups = _clean_series_to_list(group_series[mask])
-    return set(groups)
+    groups = _clean_series_to_list(
+        df[
+            group_column
+        ]
+    )
+
+    return set(
+        groups
+    )
 
 
-# =========================================================
-# Funzione testuale di deprovisioning (Step 2) – EN/IT safe
-# =========================================================
+# ============================================================
+# ESTRAZIONE GRUPPI ENTRA ID
+# ============================================================
 
-def genera_deprovisioning(
-    sam: str,
+def extract_entra_groups_for_user(
+    entra_df: pd.DataFrame,
+    sam: str
+) -> Tuple[List[str], List[str]]:
+    """
+    Estrae i gruppi Entra ID direttamente associati all'utente.
+    """
+
+    warnings = []
+
+    if entra_df is None or entra_df.empty:
+
+        warnings.append(
+            "Non è stato caricato il file Entra."
+        )
+
+        return [], warnings
+
+    required = {
+        "UPN membro": CAND_ENTRA_MEMBER_UPN,
+        "nome gruppo": CAND_ENTRA_GROUP_NAME
+    }
+
+    ok, missing = _require_any(
+        entra_df,
+        required
+    )
+
+    if not ok:
+
+        warnings.append(
+            "Nel file Entra non sono stati trovati "
+            "i campi: "
+            + ", ".join(
+                missing
+            )
+            + "."
+        )
+
+        return [], warnings
+
+    member_column = _find_col(
+        entra_df,
+        CAND_ENTRA_MEMBER_UPN
+    )
+
+    group_column = _find_col(
+        entra_df,
+        CAND_ENTRA_GROUP_NAME
+    )
+
+    member_mask = build_member_mask(
+        entra_df[
+            member_column
+        ],
+        sam
+    )
+
+    entra_groups = _clean_series_to_list(
+        entra_df.loc[
+            member_mask,
+            group_column
+        ]
+    )
+
+    if not entra_groups:
+
+        warnings.append(
+            "Non sono stati trovati gruppi Entra ID "
+            "associati all'utente indicato."
+        )
+
+    return entra_groups, warnings
+
+
+def filter_entra_groups(
+    entra_groups: List[str],
     dl_df: pd.DataFrame,
     sm_df: pd.DataFrame,
-    mg_df: pd.DataFrame,
-    entra_df: pd.DataFrame
+    mg_df: pd.DataFrame
 ) -> List[str]:
-    sam_lower = sam.lower().strip()
-    user_email = f"{sam_lower}@consip.it"
+    """
+    Dalla lista dei gruppi Entra rimuove:
 
-    clean = sam_lower.replace(".ext", "")
-    parts = clean.split('.', 1)
-    if sam_lower.endswith(".ext") and len(parts) == 2:
-        nome, cognome = parts
-        title = f"[Consip – SR] Casella di posta - Deprovisioning - {cognome.capitalize()} {nome.capitalize()} (esterno)"
-    elif len(parts) == 2:
-        nome, cognome = parts
-        title = f"[Consip – SR] Casella di posta - Deprovisioning - {cognome.capitalize()} {nome.capitalize()}"
+    - gruppi già identificati come DL;
+    - gruppi già identificati come Shared Mailbox;
+    - gruppi già presenti nei gruppi AD;
+    - O365 Copilot Plus;
+    - O365 Teams Premium.
+    """
+
+    dl_groups = extract_groupROUP
+    )
+
+    sm_groups = extract_group_names_from_df(
+        sm_df,
+        CAND_SM_MAILBOX_ADDR
+        + CAND_SM_GROUP_NAME
+    )
+
+    mg_groups = extract_group_names_from_df(
+        mg_df,
+        CAND_MG_GROUP
+    )
+
+    other_groups = (
+        dl_groups
+        | sm_groups
+        | mg_groups
+    )
+
+    other_groups_lower = {
+        str(group).strip().lower()
+        for group in other_groups
+        if str(group).strip()
+    }
+
+    excluded_specific = {
+        "o365 copilot plus",
+        "o365 teams premium"
+    }
+
+    filtered_groups = []
+
+    for group in entra_groups:
+
+        clean_group = str(
+            group
+        ).strip()
+
+        normalized_group = clean_group.lower()
+
+        if not clean_group:
+            continue
+
+        if normalized_group in other_groups_lower:
+            continue
+
+        if normalized_group in excluded_specific:
+            continue
+
+        filtered_groups.append(
+            clean_group
+        )
+
+    return sorted(
+        unique_in_order(
+            filtered_groups
+        ),
+        key=lambda value: value.lower()
+    )
+
+
+# ============================================================
+# GENERAZIONE CSV UTENTE
+# ============================================================
+
+def genera_csv_utente(
+    sam: str,
+    mg_df: pd.DataFrame
+) -> Tuple[
+    str,
+    List[str],
+    List[str],
+    List[str]
+]:
+    """
+    Genera il CSV dell'utente per:
+
+    - rimozione gruppi AD;
+    - disabilitazione;
+    - spostamento nella OU prevista.
+    """
+
+    gruppi_ad, warnings = estrai_rimozione_gruppi(
+        sam,
+        mg_df
+    )
+
+    rimozione_gruppi = ";".join(
+        gruppi_ad
+    )
+
+    row_map = {
+        header: ""
+        for header in HEADER_UTENTE
+    }
+
+    row_map[
+        "sAMAccountName"
+    ] = normalize_sam(
+        sam
+    )
+
+    row_map[
+        "RimozioneGruppo"
+    ] = rimozione_gruppi
+
+    row_map[
+        "disable"
+    ] = "SI"
+
+    row_map[
+        "moveToOU"
+    ] = "SI"
+
+    row = [
+        row_map.get(
+            header,
+            ""
+        )
+        for header in HEADER_UTENTE
+    ]
+
+    csv_content = prepara_csv_standard(
+        row,
+        HEADER_UTENTE
+    )
+
+    return (
+        csv_content,
+        row,
+        gruppi_ad,
+        warnings
+    )
+
+
+# ============================================================
+# GENERAZIONE CSV COMPUTER
+# ============================================================
+
+def genera_device_csv(
+    sam: str,
+    device_df: pd.DataFrame
+) -> Tuple[
+    Optional[str],
+    Optional[List[str]],
+    Optional[str],
+    List[str]
+]:
+    """
+    Genera il CSV del computer associato all'utente.
+
+    Restituisce:
+    - contenuto CSV;
+    - riga CSV;
+    - nome computer;
+    - lista avvisi.
+    """
+
+    warnings = []
+
+    if device_df is None or device_df.empty:
+
+        warnings.append(
+            "Non è stato caricato il file Estr_Device."
+        )
+
+        return None, None, None, warnings
+
+    enabled_column = _find_col(
+        device_df,
+        CAND_DEV_ENABLED
+    )
+
+    description_column = _find_col(
+        device_df,
+        CAND_DEV_DESC
+    )
+
+    name_column = _find_col(
+        device_df,
+        CAND_DEV_NAME
+    )
+
+    mail_column = _find_col(
+        device_df,
+        CAND_DEV_MAIL
+    )
+
+    mobile_column = _find_col(
+        device_df,
+        CAND_DEV_MOBILE
+    )
+
+    upn_column = _find_col(
+        device_df,
+        CAND_DEV_UPN
+    )
+
+    if not enabled_column:
+
+        warnings.append(
+            "Nel file Estr_Device non è stata trovata "
+            "la colonna Enabled/Abilitato."
+        )
+
+    if not description_column:
+
+        warnings.append(
+            "Nel file Estr_Device non è stata trovata "
+            "la colonna Description/Descrizione."
+        )
+
+    if not name_column:
+
+        warnings.append(
+            "Nel file Estr_Device non è stata trovata "
+            "la colonna Name/Nome/Computer."
+        )
+
+    if (
+        not enabled_column
+        or not description_column
+        or not name_column
+    ):
+
+        return None, None, None, warnings
+
+    enabled_series = device_df[
+        enabled_column
+    ]
+
+    if pd.api.types.is_bool_dtype(
+        enabled_series
+    ):
+
+        enabled_mask = (
+            enabled_series == True
+        )
+
     else:
-        title = f"[Consip – SR] Casella di posta - Deprovisioning - {clean}"
 
-    st.subheader(title)
-    lines = [f"Ciao,\nper {user_email} :"]
-    warnings: List[str] = []
+        enabled_mask = (
+            enabled_series
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .str.lower()
+            .isin(
+                [
+                    "true",
+                    "1",
+                    "yes",
+                    "si",
+                    "sì",
+                    "vero"
+                ]
+            )
+        )
+
+    enabled_devices = device_df[
+        enabled_mask
+    ].copy()
+
+    if enabled_devices.empty:
+
+        warnings.append(
+            "Nel file Estr_Device non sono presenti "
+            "computer abilitati."
+        )
+
+        return None, None, None, warnings
+
+    sam_lower = normalize_sam(
+        sam
+    )
+
+    clean_sam = get_clean_sam(
+        sam
+    )
+
+    description_values = (
+        enabled_devices[
+            description_column
+        ]
+        .fillna("")
+        .astype(str)
+        .str.lower()
+    )
+
+    exact_pattern = (
+        rf"(?:^|\s|[-;,{re.escape('|')},])"
+        rf"(?:{re.escape(sam_lower)}|"
+        rf"{re.escape(clean_sam)})"
+        rf"(?:$|\s|[-;,{re.escape('|')},])"
+    )
+
+    device_mask = description_values.str.contains(
+        exact_pattern,
+        regex=True,
+        na=False
+    )
+
+    if not device_mask.any():
+
+        device_mask = (
+            description_values.str.contains(
+                re.escape(
+                    sam_lower
+                ),
+                regex=True,
+                na=False
+            )
+        )
+
+    if (
+        not device_mask.any()
+        and clean_sam != sam_lower
+    ):
+
+        device_mask = (
+            description_values.str.contains(
+                re.escape(
+                    clean_sam
+                ),
+                regex=True,
+                na=False
+            )
+        )
+
+    if not device_mask.any():
+
+        warnings.append(
+            "Non è stato trovato un computer associato "
+            "all'utente indicato."
+        )
+
+        return None, None, None, warnings
+
+    matched_devices = enabled_devices[
+        device_mask
+    ]
+
+    if len(
+        matched_devices
+    ) > 1:
+
+        warnings.append(
+            "Sono stati trovati più computer associati "
+            "all'utente. Nel CSV è stato utilizzato "
+            "il primo risultato."
+        )
+
+    row_data = matched_devices.iloc[
+        0
+    ]
+
+    computer_name = str(
+        row_data.get(
+            name_column,
+            ""
+        )
+    ).strip()
+
+    if not computer_name:
+
+        warnings.append(
+            "Il computer trovato non contiene "
+            "un nome valido."
+        )
+
+        return None, None, None, warnings
+
+    def has_value(
+        column_name: Optional[str]
+    ) -> str:
+
+        if not column_name:
+            return ""
+
+        value = row_data.get(
+            column_name,
+            ""
+        )
+
+        if pd.isna(
+            value
+        ):
+            return ""
+
+        clean_value = str(
+            value
+        ).strip()
+
+        if not clean_value:
+            return ""
+
+        return "SI"
+
+    remove_mail = has_value(
+        mail_column
+    )
+
+    remove_mobile = has_value(
+        mobile_column
+    )
+
+    remove_upn = has_value(
+        upn_column
+    )
+
+    if not any(
+        [
+            remove_mail,
+            remove_mobile,
+            remove_upn
+        ]
+    ):
+
+        warnings.append(
+            "Il computer trovato non presenta riferimenti "
+            "Mail, Mobile o userPrincipalName da rimuovere."
+        )
+
+        return None, None, computer_name, warnings
+
+    row = [
+        computer_name,
+        "",
+        "",
+        remove_mail,
+        "",
+        remove_mobile,
+        "",
+        remove_upn,
+        "",
+        ""
+    ]
+
+    csv_content = prepara_csv_device(
+        row,
+        include_eof=True
+    )
+
+    return (
+        csv_content,
+        row,
+        computer_name,
+        warnings
+    )
+
+
+# ============================================================
+# GENERAZIONE ISTRUZIONI DEPROVISIONING
+# ============================================================
+
+def genera_istruzioni_deprovisioning(
+    sam: str,
+    dl_list: List[str],
+    sm_list: List[str],
+    entra_groups: List[str],
+    gruppi_ad: List[str]
+) -> str:
+    """
+    Genera il file testuale contenente tutte
+    le istruzioni di deprovisioning.
+    """
+
+    sam_lower = normalize_sam(
+        sam
+    )
+
+    user_email = (
+        f"{sam_lower}@consip.it"
+    )
+
+    lines = [
+        "Ciao,",
+        (
+            f"per l'utenza {sam_lower} "
+            f"({user_email}) si richiedono "
+            "le seguenti attività:"
+        ),
+        ""
+    ]
+
     step = 1
 
-    fixed = [
-        "Disabilitare invio ad utente (Message Delivery Restrictions)",
-        "Impostare Hide dalla Rubrica",
-        "Disabilitare accesso Mailbox (Mailbox features – Disable Protocolli/OWA)",
-        f"Estrarre il PST (O365 eDiscovery) da archiviare in \\nasconsip2....\\backuppst\\03 - backup email cancellate\\{user_email} (in z7 con psw condivisa)",
-        "Rimuovere i Ruoli assegnati",
-        "Rimuovere le applicazioni dall’utenza Azure"
+    fixed_steps = [
+        (
+            "Disabilitare l'invio verso l'utente "
+            "(Message Delivery Restrictions)."
+        ),
+        (
+            "Impostare la casella come nascosta "
+            "dalla Rubrica."
+        ),
+        (
+            "Disabilitare l'accesso alla Mailbox "
+            "(Mailbox features: disabilitare "
+            "protocolli e OWA)."
+        ),
+        (
+            "Estrarre il PST tramite O365 eDiscovery "
+            "e archiviarlo nel percorso previsto per "
+            "il backup delle email cancellate, "
+            "utilizzando un archivio 7z protetto "
+            "dalla password condivisa."
+        ),
+        (
+            "Rimuovere i ruoli assegnati all'utenza."
+        ),
+        (
+            "Rimuovere le applicazioni assegnate "
+            "all'utenza Azure/Entra ID."
+        )
     ]
-    for desc in fixed:
-        lines.append(f"{step}. {desc}")
+
+    for description in fixed_steps:
+
+        lines.append(
+            f"{step}. {description}"
+        )
+
         step += 1
 
-    # --- DL (Distribution Lists): rimozione abilitazione
-    dl_list: List[str] = []
-    if dl_df is not None and not dl_df.empty:
-        col_group = _find_col_preferred(dl_df, CAND_DL_GROUP_ADDR, CAND_DL_GROUP)  # nome DL = Primary SMTP address
-        col_member = _find_col(dl_df, CAND_DL_MEMBER)  # membership via "Member Alias" o equivalenti
-        if col_group and col_member:
-            mvals = dl_df[col_member].astype(str).str.strip().str.lower()
-            candidates = {user_email, sam_lower}
-            mask = mvals.isin(candidates)
-            if not mask.any():
-                # gestisce membri multipli in cella (separati da ; , o spazi)
-                pattern = rf"(?:^|[;,\s])({re.escape(user_email)}|{re.escape(sam_lower)})(?:$|[;,\s])"
-                mask = dl_df[col_member].astype(str).str.lower().str.contains(pattern, na=False)
-            if mask.any():
-                dl_list = _clean_series_to_list(dl_df.loc[mask, col_group])
-        else:
-            warnings.append("Nel file DL non ho trovato colonne per 'Member Alias/Member' o 'Distribution Group Primary SMTP address'.")
     if dl_list:
-        lines.append(f"{step}. Rimozione abilitazione dalle DL")
-        for dl in dl_list:
-            lines.append(f"   - {dl}")
-        step += 1
-    else:
-        warnings.append("⚠️ Non sono state trovate DL per l'utente indicato")
 
-    # --- Disabilita account Azure
-    lines.append(f"{step}. Disabilitare l’account di Azure")
+        lines.append(
+            f"{step}. Rimuovere l'utente "
+            "dalle seguenti Liste di Distribuzione:"
+        )
+
+        for dl in dl_list:
+
+            lines.append(
+                f"   - {dl}"
+            )
+
+    else:
+
+        lines.append(
+            f"{step}. Nessuna Lista di Distribuzione "
+            "rilevata per l'utente."
+        )
+
     step += 1
 
-    # --- SM (Shared Mailboxes): rimozione abilitazioni
-    sm_list: List[str] = []
-    if sm_df is not None and not sm_df.empty:
-        col_member = _find_col(sm_df, CAND_SM_MEMBER)  # membership via colonna "member"
-        col_mailbox_addr = _find_col_preferred(sm_df, CAND_SM_MAILBOX_ADDR, CAND_SM_GROUP_NAME)  # nome SM = EmailAddress
-        if col_member and col_mailbox_addr:
-            mvals = sm_df[col_member].astype(str).str.strip().str.lower()
-            candidates = {user_email, sam_lower}
-            mask_any = mvals.isin(candidates)
-            if not mask_any.any():
-                # gestione membri multipli in cella (separati da ; , o spazi)
-                pattern = rf"(?:^|[;,\s])({re.escape(user_email)}|{re.escape(sam_lower)})(?:$|[;,\s])"
-                mask_any = sm_df[col_member].astype(str).str.lower().str.contains(pattern, na=False)
-            if mask_any.any():
-                sm_list = _clean_series_to_list(sm_df.loc[mask_any, col_mailbox_addr])
-        else:
-            warnings.append("Nel file SM non ho trovato colonne per 'Member' o 'EmailAddress/SMTP'.")
+    lines.append(
+        f"{step}. Disabilitare l'account "
+        "Azure/Entra ID."
+    )
+
+    step += 1
+
     if sm_list:
-        lines.append(f"{step}. Rimozione abilitazione da SM")
-        for sm in sm_list:
-            lines.append(f"   - {sm}")
-        step += 1
+
+        lines.append(
+            f"{step}. Rimuovere le abilitazioni "
+            "dalle seguenti Shared Mailbox:"
+        )
+
+        for shared_mailbox in sm_list:
+
+            lines.append(
+                f"   - {shared_mailbox}"
+            )
+
     else:
-        warnings.append("⚠️ Non sono state trovate SM profilate all'utente indicato")
 
-    # --- Azure (Entra) gruppi da rimuovere dopo scrematura DL/MG/SM
-    entra_groups = extract_entra_groups_for_user(entra_df, user_email)
-    dl_groups_all = extract_group_names_from_df(dl_df)
-    mg_groups_all: Set[str] = set()
-    if mg_df is not None and not mg_df.empty:
-        mg_group_col = _find_col(mg_df, CAND_MG_GROUP)
-        if mg_group_col:
-            mg_groups_all = set([str(x).strip() for x in mg_df[mg_group_col].dropna().astype(str).tolist()])
-    sm_groups_all = extract_group_names_from_df(sm_df)
-    other_groups_union = set(dl_groups_all) | set(mg_groups_all) | set(sm_groups_all)
+        lines.append(
+            f"{step}. Nessuna Shared Mailbox "
+            "rilevata per l'utente."
+        )
 
-    def normalize_set(s):
-        return {str(x).strip() for x in s if str(x).strip() != ""}
+    step += 1
 
-    entra_norm = normalize_set(entra_groups)
-    other_norm = normalize_set(other_groups_union)
-    other_lower = {g.lower() for g in other_norm}
-    subset = {g for g in entra_norm if g.lower() not in other_lower}
+    if entra_groups:
 
-    # Esclusioni specifiche note
-    exclude_specific = {"o365 copilot plus", "o365 teams premium"}
-    subset = {g for g in subset if g.lower() not in exclude_specific}
+        lines.append(
+            f"{step}. Rimuovere l'utente "
+            "dai seguenti gruppi Entra ID:"
+        )
 
-    if subset:
-        lines.append(f"{step}. Rimozione gruppi Azure:")
-        for g in sorted(subset, key=lambda x: x.lower()):
-            lines.append(f"   - {g}")
-        step += 1
+        for group in entra_groups:
+
+            lines.append(
+                f"   - {group}"
+            )
+
     else:
-        warnings.append("⚠️ Nessun gruppo Azure (file Entra) da rimuovere dopo lo scremamento con DL/MG/SM")
 
-    final_rest = [
-        "Cancellare la foto da Azure (se applicabile)",
-        "Rimozione Wi-Fi"
+        lines.append(
+            f"{step}. Nessun gruppo Entra ID "
+            "aggiuntivo rilevato dopo lo scremamento."
+        )
+
+    step += 1
+
+    if gruppi_ad:
+
+        lines.append(
+            f"{step}. Rimuovere l'utente "
+            "dai gruppi AD indicati nel CSV utente."
+        )
+
+    else:
+
+        lines.append(
+            f"{step}. Nel file Estr_MembriGruppi "
+            "non sono stati rilevati gruppi AD "
+            "da rimuovere."
+        )
+
+    step += 1
+
+    final_steps = [
+        "Cancellare la foto dell'utente da Azure, se presente.",
+        "Rimuovere l'abilitazione Wi-Fi.",
+        "Disabilitare l'utenza Active Directory.",
+        "Spostare l'utenza nella OU prevista per gli utenti dismessi."
     ]
-    for desc in final_rest:
-        lines.append(f"{step}. {desc}")
+
+    for description in final_steps:
+
+        lines.append(
+            f"{step}. {description}"
+        )
+
         step += 1
 
-    if warnings:
-        lines.append("\n⚠️ Avvisi:")
-        lines.extend(warnings)
-
-    return lines
+    return "\n".join(
+        lines
+    )
 
 
-# ==========================================
-# Funzione per generare CSV Device – EN/IT
-# ==========================================
+# ============================================================
+# INTERFACCIA STREAMLIT
+# ============================================================
 
-def genera_device_csv(sam: str, device_df: pd.DataFrame) -> Tuple[Optional[str], Optional[str]]:
-    """
-    Ritorna (contenuto_csv, nome_file) oppure (None, None) se non applicabile.
-    Supporta colonne EN/IT tipiche degli export Device.
-    """
-    if device_df is None or device_df.empty:
-        return None, None
+st.subheader(
+    "Modulo Deprovisioning Utente"
+)
 
-    col_enabled = _find_col(device_df, CAND_DEV_ENABLED)
-    if not col_enabled or col_enabled not in device_df.columns:
-        return None, None
-
-    # Filtra solo enabled == True/vero
-    enabled_series = device_df[col_enabled]
-    # Gestione valori tipo "True"/"Yes"/"Sì"
-    enabled_mask = enabled_series.astype(str).str.strip().str.lower().isin(["true", "1", "yes", "si", "sì"])
-    # se la colonna è nativa booleana, preserva
-    if enabled_series.dtype == bool:
-        enabled_mask = enabled_series == True
-
-    device_df = device_df[enabled_mask]
-    if device_df.empty:
-        return None, None
-
-    col_desc = _find_col(device_df, CAND_DEV_DESC)
-    col_name = _find_col(device_df, CAND_DEV_NAME)
-    col_mail = _find_col(device_df, CAND_DEV_MAIL)
-    col_mobile = _find_col(device_df, CAND_DEV_MOBILE)
-    col_upn = _find_col(device_df, CAND_DEV_UPN)
-
-    if not col_desc or not col_name:
-        return None, None
-
-    # cerca riga del device collegata all'utente (in Description)
-    sam_clean = sam.strip()
-    desc_vals = device_df[col_desc].astype(str)
-    mask = desc_vals.str.contains(fr"\s-\s{re.escape(sam_clean)}\s-\s", case=False, na=False)
-    if not mask.any():
-        return None, None
-
-    row_data = device_df.loc[mask].iloc[0]
-    computer_name = str(row_data[col_name]).strip()
-
-    def _has_val(colname: Optional[str]) -> str:
-        if not colname or colname not in row_data.index:
-            return ""
-        return "SI" if str(row_data.get(colname, "")).strip() else ""
-
-    remove_mail = _has_val(col_mail)
-    remove_mobile = _has_val(col_mobile)
-    remove_upn = _has_val(col_upn)
-
-    if not any([remove_mail, remove_mobile, remove_upn]):
-        return None, None
-
-    # Nome file: AAAAMMGG_Computer_riferimenti_remove[Cognome].csv
-    today = datetime.now().strftime("%Y%m%d")
-    clean = sam.replace(".ext", "")
-    parts = clean.split('.')
-    cognome = parts[1].capitalize() if len(parts) >= 2 else clean.capitalize()
-    file_name = f"{today}_Computer_riferimenti_remove[{cognome}].csv"
-
-    buf = io.StringIO()
-    writer = csv.writer(buf, quoting=csv.QUOTE_NONE, escapechar='\\')
-    writer.writerow(HEADER_DEVICE)
-    writer.writerow([computer_name, "", "", remove_mail, "", remove_mobile, "", remove_upn, "", ""])
-    # Riga EOF
-    writer.writerow(["EOF-riga lasciata appositamente scritta così per verificare che nessun PC sia andato nella OU/dismessi/computer"])
-    buf.seek(0)
-    return buf.getvalue(), file_name
+colonna_1, colonna_2 = st.columns(
+    2
+)
 
 
-# ===============
-# Streamlit UI
-# ===============
+with colonna_1:
 
-def main():
-    st.set_page_config(page_title="Deprovisioning Consip", layout="centered")
-    st.title("Deprovisioning Utente")
+    sam = st.text_input(
+        "Nome utente (sAMAccountName)",
+        "",
+        help=(
+            "Esempi: mario.rossi oppure "
+            "m.rossi.ext"
+        )
+    ).strip().lower()
 
-    sam = st.text_input("Nome utente (sAMAccountName)", "").strip().lower()
+    nome = st.text_input(
+        "Nome",
+        "",
+        help=(
+            "Campo facoltativo. Se lasciato vuoto "
+            "verrà ricavato dallo sAMAccountName."
+        )
+    ).strip().title()
+
+    cognome = st.text_input(
+        "Cognome",
+        "",
+        help=(
+            "Campo facoltativo. Se lasciato vuoto "
+            "verrà ricavato dallo sAMAccountName."
+        )
+    ).strip().title()
+
+
+with colonna_2:
+
+    data_deprovisioning = st.text_input(
+        "Data deprovisioning (gg/mm/aaaa)",
+        datetime.now().strftime(
+            "%d/%m/%Y"
+        )
+    ).strip()
+
+    note_aggiuntive = st.text_area(
+        "Note aggiuntive",
+        "",
+        help=(
+            "Le note verranno inserite "
+            "nelle istruzioni destinate a GIIT."
+        )
+    ).strip()
+
+
+st.markdown("---")
+
+
+# ============================================================
+# CARICAMENTO FILE DI EXPORT
+# ============================================================
+
+st.markdown(
+    "### File necessari per la verifica delle profilazioni"
+)
+
+col_file_1, col_file_2 = st.columns(
+    2
+)
+
+
+with col_file_1:
+
+    mg_file = st.file_uploader(
+        "Carica Estr_MembriGruppi (Excel)",
+        type=["xlsx"],
+        key="deprovisioning_mg"
+    )
+
+    dl_file = st.file_uploader(
+        "Carica file DL (Excel)",
+        type=["xlsx"],
+        key="deprovisioning_dl"
+    )
+
+    sm_file = st.file_uploader(
+        "Carica file SM (Excel)",
+        type=["xlsx"],
+        key="deprovisioning_sm"
+    )
+
+
+with col_file_2:
+
+    entra_file = st.file_uploader(
+        "Carica file Entra (Excel)",
+        type=["xlsx"],
+        key="deprovisioning_entra"
+    )
+
+    device_file = st.file_uploader(
+        "Carica Estr_Device (Excel)",
+        type=["xlsx"],
+        key="deprovisioning_device"
+    )
+
+
+st.caption(
+    "I file possono avere intestazioni in italiano o inglese. "
+    "Se un file non viene caricato, il flusso viene comunque "
+    "generato e viene mostrato un avviso."
+)
+
+
+# ============================================================
+# GENERAZIONE FLUSSO
+# ============================================================
+
+if st.button(
+    "Genera Deprovisioning",
+    type="primary"
+):
+
+    # --------------------------------------------------------
+    # Validazioni
+    # --------------------------------------------------------
+
+    if not sam:
+
+        st.error(
+            "Inserire lo sAMAccountName "
+            "prima di generare il deprovisioning."
+        )
+
+        st.stop()
+
+    if " " in sam:
+
+        st.error(
+            "Lo sAMAccountName non può contenere spazi."
+        )
+
+        st.stop()
+
+    if not data_deprovisioning:
+
+        st.error(
+            "Inserire la data di deprovisioning."
+        )
+
+        st.stop()
+
+    # --------------------------------------------------------
+    # Lettura file
+    # --------------------------------------------------------
+
+    mg_df = _read_excel_or_empty(
+        mg_file
+    )
+
+    dl_df = _read_excel_or_empty(
+        dl_file
+    )
+
+    sm_df = _read_excel_or_empty(
+        sm_file
+    )
+
+    entra_df = _read_excel_or_empty(
+        entra_file
+    )
+
+    device_df = _read_excel_or_empty(
+        device_file
+    )
+
+    # --------------------------------------------------------
+    # Dati principali
+    # --------------------------------------------------------
+
+    sam_lower = normalize_sam(
+        sam
+    )
+
+    user_email = (
+        f"{sam_lower}@consip.it"
+    )
+
+    display_name = build_display_name(
+        sam_lower,
+        nome,
+        cognome
+    )
+
+    persona_nome_file = sanitize_filename_part(
+        build_file_person_name(
+            sam_lower,
+            nome,
+            cognome
+        )
+    )
+
+    persona_nome_underscore = (
+        persona_nome_file.replace(
+            " ",
+            "_"
+        )
+    )
+
+    # --------------------------------------------------------
+    # Estrazione gruppi AD e generazione CSV utente
+    # --------------------------------------------------------
+
+    (
+        csv_utente,
+        row_utente,
+        gruppi_ad,
+        warnings_utente
+    ) = genera_csv_utente(
+        sam_lower,
+        mg_df
+    )
+
+    # --------------------------------------------------------
+    # Estrazione DL
+    # --------------------------------------------------------
+
+    dl_list, warnings_dl = extract_dl_for_user(
+        dl_df,
+        sam_lower
+    )
+
+    # --------------------------------------------------------
+    # Estrazione Shared Mailbox
+    # --------------------------------------------------------
+
+    sm_list, warnings_sm = extract_sm_for_user(
+        sm_df,
+        sam_lower
+    )
+
+    # --------------------------------------------------------
+    # Estrazione gruppi Entra ID
+    # --------------------------------------------------------
+
+    (
+        entra_groups_raw,
+        warnings_entra
+    ) = extract_entra_groups_for_user(
+        entra_df,
+        sam_lower
+    )
+
+    entra_groups = filter_entra_groups(
+        entra_groups_raw,
+        dl_df,
+        sm_df,
+        mg_df
+    )
+
+    if (
+        entra_groups_raw
+        and not entra_groups
+    ):
+
+        warnings_entra.append(
+            "I gruppi Entra ID trovati sono stati "
+            "esclusi perché già presenti nei file "
+            "DL, SM o gruppi AD, oppure perché "
+            "appartenenti alle esclusioni previste."
+        )
+
+    # --------------------------------------------------------
+    # Generazione CSV computer
+    # --------------------------------------------------------
+
+    (
+        csv_computer,
+        row_computer,
+        computer_name,
+        warnings_device
+    ) = genera_device_csv(
+        sam_lower,
+        device_df
+    )
+
+    # --------------------------------------------------------
+    # Generazione istruzioni
+    # --------------------------------------------------------
+
+    istruzioni_deprovisioning = (
+        genera_istruzioni_deprovisioning(
+            sam_lower,
+            dl_list,
+            sm_list,
+            entra_groups,
+            gruppi_ad
+        )
+    )
+
+    if note_aggiuntive:
+
+        istruzioni_deprovisioning += (
+            "\n\nNote aggiuntive:\n"
+            f"{note_aggiuntive}"
+        )
+
+    # --------------------------------------------------------
+    # Nomi file
+    # --------------------------------------------------------
+
+    filename_utente = (
+        f"1_{persona_nome_file}"
+        "_deprovisioning_utenza.csv"
+    )
+
+    filename_istruzioni = (
+        f"2_{persona_nome_file}"
+        "_istruzioni_deprovisioning.txt"
+    )
+
+    if csv_computer:
+
+        filename_computer = (
+            f"3_{persona_nome_underscore}"
+            "_computer_remove.csv"
+        )
+
+    else:
+
+        filename_computer = ""
+
+    # --------------------------------------------------------
+    # Testo richiesta GIIT
+    # --------------------------------------------------------
+
+    subject_giit = (
+        "01 - Deprovisioning Utente "
+        "(Utenza/Casella/Profilazioni/Computer) - "
+        f"{display_name} → GIIT"
+    )
+
+    message_giit_lines = [
+        "Ciao,",
+        (
+            f"si richiede il deprovisioning "
+            f"dell'utenza {sam_lower} "
+            f"relativa a {display_name}, "
+            f"da effettuare in data "
+            f"{data_deprovisioning}."
+        ),
+        "",
+        (
+            "Elaborare i file contenuti nella "
+            "cartella compressa .zip "
+            "nel seguente ordine:"
+        ),
+        (
+            f"1. {filename_utente} per la rimozione "
+            "dei gruppi AD, la disabilitazione "
+            "dell'utenza e lo spostamento "
+            "nella OU prevista."
+        ),
+        (
+            f"2. {filename_istruzioni} per le attività "
+            "relative alla casella, alle Liste "
+            "di Distribuzione, alle Shared Mailbox "
+            "e alle profilazioni Entra ID."
+        )
+    ]
+
+    if csv_computer:
+
+        message_giit_lines.append(
+            f"3. {filename_computer} per la rimozione "
+            f"dei riferimenti dell'utente dal computer "
+            f"{computer_name}."
+        )
+
+    else:
+
+        message_giit_lines.append(
+            "3. Non è stato generato alcun CSV computer "
+            "perché non è stato trovato un dispositivo "
+            "associato con riferimenti da rimuovere."
+        )
+
+    message_giit = "\n".join(
+        message_giit_lines
+    )
+
+    # --------------------------------------------------------
+    # Guida completa
+    # --------------------------------------------------------
+
+    guida_flusso = "\n\n".join(
+        [
+            subject_giit,
+            message_giit,
+            (
+                "ISTRUZIONI OPERATIVE DI DEPROVISIONING"
+            ),
+            istruzioni_deprovisioning
+        ]
+    )
+
+    filename_guida = (
+        f"Guida_Flusso_Deprovisioning_"
+        f"{persona_nome_underscore}.txt"
+    )
+
+    # --------------------------------------------------------
+    # Creazione ZIP
+    # --------------------------------------------------------
+
+    zip_buffer = io.BytesIO()
+
+    with zipfile.ZipFile(
+        zip_buffer,
+        "w",
+        zipfile.ZIP_DEFLATED
+    ) as zip_file:
+
+        zip_file.writestr(
+            filename_utente,
+            csv_utente
+        )
+
+        zip_file.writestr(
+            filename_istruzioni,
+            istruzioni_deprovisioning
+        )
+
+        if (
+            csv_computer
+            and filename_computer
+        ):
+
+            zip_file.writestr(
+                filename_computer,
+                csv_computer
+            )
+
+        zip_file.writestr(
+            filename_guida,
+            guida_flusso
+        )
+
+    zip_buffer.seek(
+        0
+    )
+
+    bundle_name = (
+        f"Deprovisioning_"
+        f"{persona_nome_underscore}.zip"
+    )
+
+    # ========================================================
+    # VISUALIZZAZIONE FLUSSO
+    # ========================================================
+
     st.markdown("---")
 
-    if sam:
-        clean = sam.replace(".ext", "")
-        parts = clean.split('.')
-        if len(parts) == 2:
-            nome, cognome = parts
-            csv_name = f"Deprovisioning_{cognome.capitalize()}_{nome[0].upper()}.csv"
+    st.subheader(
+        subject_giit
+    )
+
+    st.text(
+        message_giit
+    )
+
+    st.markdown(
+        "**File di competenza GIIT:**"
+    )
+
+    # --------------------------------------------------------
+    # File 1 - Utente
+    # --------------------------------------------------------
+
+    st.markdown(
+        f"**1. {filename_utente}**"
+    )
+
+    st.info(
+        "Il file gestisce la rimozione dei gruppi AD, "
+        "la disabilitazione dell'utenza e lo spostamento "
+        "nella OU prevista."
+    )
+
+    st.dataframe(
+        pd.DataFrame(
+            [row_utente],
+            columns=HEADER_UTENTE
+        ),
+        use_container_width=True
+    )
+
+    st.download_button(
+        "Scarica 1 - Deprovisioning Utenza",
+        data=csv_utente,
+        file_name=filename_utente,
+        mime="text/csv",
+        key="download_deprovisioning_utente"
+    )
+
+    # --------------------------------------------------------
+    # Gruppi AD rilevati
+    # --------------------------------------------------------
+
+    with st.expander(
+        "Gruppi AD rilevati"
+    ):
+
+        if gruppi_ad:
+
+            for group in gruppi_ad:
+
+                st.write(
+                    f"- {group}"
+                )
+
         else:
-            csv_name = f"Deprovisioning_{clean}.csv"
+
+            st.info(
+                "Nessun gruppo AD rilevato."
+            )
+
+    # --------------------------------------------------------
+    # File 2 - Istruzioni
+    # --------------------------------------------------------
+
+    st.markdown(
+        f"**2. {filename_istruzioni}**"
+    )
+
+    st.text(
+        istruzioni_deprovisioning
+    )
+
+    st.download_button(
+        "Scarica 2 - Istruzioni Deprovisioning",
+        data=istruzioni_deprovisioning,
+        file_name=filename_istruzioni,
+        mime="text/plain",
+        key="download_istruzioni_deprovisioning"
+    )
+
+    # --------------------------------------------------------
+    # File 3 - Computer
+    # --------------------------------------------------------
+
+    if (
+        csv_computer
+        and row_computer
+        and filename_computer
+    ):
+
+        st.markdown(
+            f"**3. {filename_computer}**"
+        )
+
+        st.info(
+            "Il file rimuove dal computer i riferimenti "
+            "Mail, Mobile e userPrincipalName "
+            "associati all'utente."
+        )
+
+        st.dataframe(
+            pd.DataFrame(
+                [row_computer],
+                columns=HEADER_COMPUTER
+            ),
+            use_container_width=True
+        )
+
+        st.download_button(
+            "Scarica 3 - Computer Remove",
+            data=csv_computer,
+            file_name=filename_computer,
+            mime="text/csv",
+            key="download_deprovisioning_computer"
+        )
+
     else:
-        csv_name = "Deprovisioning_.csv"
-    st.write(f"**File CSV generato:** {csv_name}")
 
-    dl_file = st.file_uploader("Carica file DL (Excel)", type="xlsx")
-    sm_file = st.file_uploader("Carica file SM (Excel)", type="xlsx")
-    mg_file = st.file_uploader("Carica file Estr_MembriGruppi (Excel)", type="xlsx")
-    entra_file = st.file_uploader("Carica file Entra (Excel)", type="xlsx")
-    device_file = st.file_uploader("Carica file Estr_Device (Excel)", type="xlsx")
+        st.markdown(
+            "**3. CSV Computer**"
+        )
 
-    if st.button("Genera Template e CSV per Deprovisioning"):
-        if not sam:
-            st.error("Inserisci lo sAMAccountName")
-            return
+        st.warning(
+            "Nessun CSV computer generato. "
+            "Non è stato trovato un computer associato "
+            "con riferimenti da rimuovere."
+        )
 
-        dl_df = _read_excel_or_empty(dl_file)
-        sm_df = _read_excel_or_empty(sm_file)
-        mg_df = _read_excel_or_empty(mg_file)
-        entra_df = _read_excel_or_empty(entra_file)
-        device_df = _read_excel_or_empty(device_file)
+    # --------------------------------------------------------
+    # Bundle completo
+    # --------------------------------------------------------
 
-        st.write("Colonne DL file:", dl_df.columns.tolist() if not dl_df.empty else "—")
-        st.write("Colonne SM file:", sm_df.columns.tolist() if not sm_df.empty else "—")
-        st.write("Colonne MG file:", mg_df.columns.tolist() if not mg_df.empty else "—")
-        st.write("Colonne Entra file:", entra_df.columns.tolist() if not entra_df.empty else "—")
-        st.write("Colonne Device file:", device_df.columns.tolist() if not device_df.empty else "—")
+    st.markdown("---")
 
-        # Log rapido delle colonne effettivamente trovate (diagnostica)
-        st.write({
-            "DL_group_col": _find_col_preferred(dl_df, CAND_DL_GROUP_ADDR, CAND_DL_GROUP) if not dl_df.empty else None,
-            "DL_member_col": _find_col(dl_df, CAND_DL_MEMBER) if not dl_df.empty else None,
-            "SM_member_col": _find_col(sm_df, CAND_SM_MEMBER) if not sm_df.empty else None,
-            "SM_mailbox_col": _find_col_preferred(sm_df, CAND_SM_MAILBOX_ADDR, CAND_SM_GROUP_NAME) if not sm_df.empty else None,
-        })
+    st.markdown(
+        "**Bundle completo del deprovisioning:**"
+    )
 
-        # CSV Utente (Step 1)
-        rimozione = estrai_rimozione_gruppi(sam, mg_df)
-        row_map = {h: "" for h in HEADER_MODIFICA}
-        row_map["sAMAccountName"] = sam
-        row_map["RimozioneGruppo"] = rimozione
-        row_map["disable"] = "SI"
-        row_map["moveToOU"] = "SI"
-        row = [row_map.get(h, "") for h in HEADER_MODIFICA]
+    st.download_button(
+        "📦 Scarica bundle completo ZIP",
+        data=zip_buffer.getvalue(),
+        file_name=bundle_name,
+        mime="application/zip",
+        key="download_deprovisioning_bundle"
+    )
 
-        buf = io.StringIO()
-        writer = csv.writer(buf, quoting=csv.QUOTE_NONE, escapechar='\\')
-        writer.writerow(HEADER_MODIFICA)
-        writer.writerow(row)
-        buf.seek(0)
+    # --------------------------------------------------------
+    # Avvisi
+    # --------------------------------------------------------
 
-        preview_df = pd.read_csv(io.StringIO(buf.getvalue()), sep=",")
-        st.subheader("Anteprima CSV Utente")
-        st.dataframe(preview_df, use_container_width=True)
-        st.download_button(label="📥 Scarica CSV Utente", data=buf.getvalue(), file_name=csv_name, mime="text/csv")
+    all_warnings = unique_in_order(
+        warnings_utente
+        + warnings_dl
+        + warnings_sm
+        + warnings_entra
+        + warnings_device
+    )
 
-        # CSV Device (se presente)
-        if device_file:
-            device_csv, device_filename = genera_device_csv(sam, device_df)
-            if device_csv:
-                st.subheader("Anteprima CSV PC")
-                preview_device_df = pd.read_csv(io.StringIO(device_csv), sep=",", header=None)
-                st.dataframe(preview_device_df, use_container_width=True)
-                st.download_button(label="📥 Scarica CSV PC", data=device_csv, file_name=device_filename, mime="text/csv")
-            else:
-                st.warning("Nessun dato valido per generare il CSV Device.")
+    if all_warnings:
 
-        # Testo Deprovisioning (Step 2)
-        steps = genera_deprovisioning(sam, dl_df, sm_df, mg_df, entra_df)
-        st.subheader("Istruzioni Deprovisioning")
-        st.text("\n".join(steps))
+        st.markdown("---")
 
+        with st.expander(
+            "Avvisi e controlli da effettuare",
+            expanded=True
+        ):
 
-if __name__ == "__main__":
-    main()
+            for warning in all_warnings:
+
+                st.warning(
+                    warning
+                )
+
+    # --------------------------------------------------------
+    # Diagnostica file
+    # --------------------------------------------------------
+
+    with st.expander(
+        "Diagnostica file caricati"
+    ):
+
+        st.write(
+            {
+                "Estr_MembriGruppi_colonne": (
+                    mg_df.columns.tolist()
+                    if not mg_df.empty
+                    else []
+                ),
+                "DL_colonne": (
+                    dl_df.columns.tolist()
+                    if not dl_df.empty
+                    else []
+                ),
+                "SM_colonne": (
+                    sm_df.columns.tolist()
+                    if not sm_df.empty
+                    else []
+                ),
+                "Entra_colonne": (
+                    entra_df.columns.tolist()
+                    if not entra_df.empty
+                    else []
+                ),
+                "Device_colonne": (
+                    device_df.columns.tolist()
+                    if not device_df.empty
+                    else []
+                )
+            }
+        )
+
+        st.write(
+            {
+                "MG_member_col": (
+                    _find_col(
+                        mg_df,
+                        CAND_MG_MEMBER
+                    )
+                    if not mg_df.empty
+                    else None
+                ),
+                "MG_group_col": (
+                    _find_col(
+                        mg_df,
+                        CAND_MG_GROUP
+                    )
+                    if not mg_df.empty
+                    else None
+                ),
+                "DL_member_col": (
+                    _find_col(
+                        dl_df,
+                        CAND_DL_MEMBER
+                    )
+                    if not dl_df.empty
+                    else None
+                ),
+                "DL_group_col": (
+                    _find_col_preferred(
+                        dl_df,
+                        CAND_DL_GROUP_ADDR,
+                        CAND_DL_GROUP
+                    )
+                    if not dl_df.empty
+                    else None
+                ),
+                "SM_member_col": (
+                    _find_col(
+                        sm_df,
+                        CAND_SM_MEMBER
+                    )
+                    if not sm_df.empty
+                    else None
+                ),
+                "SM_mailbox_col": (
+                    _find_col_preferred(
+                        sm_df,
+                        CAND_SM_MAILBOX_ADDR,
+                        CAND_SM_GROUP_NAME
+                    )
+                    if not sm_df.empty
+                    else None
+                ),
+                "Entra_member_col": (
+                    _find_col(
+                        entra_df,
+                        CAND_ENTRA_MEMBER_UPN
+                    )
+                    if not entra_df.empty
+                    else None
+                ),
+                "Entra_group_col": (
+                    _find_col(
+                        entra_df,
+                        CAND_ENTRA_GROUP_NAME
+                    )
+                    if not entra_df.empty
+                    else None
+                ),
+                "Device_name_col": (
+                    _find_col(
+                        device_df,
+                        CAND_DEV_NAME
+                    )
+                    if not device_df.empty
+                    else None
+                ),
+                "Device_description_col": (
+                    _find_col(
+                        device_df,
+                        CAND_DEV_DESC
+                    )
+                    if not device_df.empty
+                    else None
+                )
+            }
+        )
+
+    st.success(
+        "Flusso completo di deprovisioning "
+        f"generato correttamente per '{sam_lower}'."
+    )
