@@ -428,7 +428,7 @@ Chiudere il task quando tutte le attività sono completate."""
 # GENERAZIONE TASK 03
 # ============================================================
 
-def genera_task_03(sam):
+def genera_task_03(sam, data_fine_piu_uno):
     return f"""
 Il giorno (formato MM/GG/AAAA) {data_fine_piu_uno}:
 Revocare la firma e rimuovere il diritto a richiedere la Firma Digitale alla risorsa {sam}.
