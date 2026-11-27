@@ -429,10 +429,7 @@ Chiudere il task quando tutte le attività sono completate."""
 # ============================================================
 
 def genera_task_03(sam):
-    return f"""GSI
-
-Gestione firma digitale - Gestione Asset
-
+    return f"""
 Revocare la firma e rimuovere il diritto a richiedere la Firma Digitale alla risorsa {sam}.
 
 Gestire l'asset e il suo stato."""
