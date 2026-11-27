@@ -434,20 +434,6 @@ Revocare la firma e rimuovere il diritto a richiedere la Firma Digitale alla ris
 
 Gestire l'asset e il suo stato."""
 
-
-# ============================================================
-# GENERAZIONE TASK 04
-# ============================================================
-
-def genera_task_04(
-    sam,
-    gruppi_ad
-):
-    lines = [
-        f"Attivare il deprovisioning dei Servizi IT per la risorsa {sam} "
-        "sulla base delle evidenze trovate nei gruppi AD."
-    ]
-
     if gruppi_ad:
         lines.extend([
             "",
@@ -699,12 +685,6 @@ if st.button(
         key="03"
     )
 
-    visualizza_task(
-        titolo="04 - Deprovisioning Servizi IT",
-        destinatario="Da individuare sulla base dei gruppi AD",
-        contenuto=task_04,
-        key="04"
-    )
 
     # --------------------------------------------------------
     # Evidenze gruppi AD
