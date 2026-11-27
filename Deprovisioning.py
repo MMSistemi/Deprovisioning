@@ -369,7 +369,7 @@ def genera_task_01(
 ):
     return f"""Ciao, si richiede per l'utenza {sam}:
 
-1. Il giorno {data_fine}:
+1. Il giorno (formato MM/GG/AAAA) {data_fine}:
 - Ritirare dall'utente gli asset associati facendolo firmare
 - Dismissione Utenza On-prem AD
 
@@ -393,7 +393,7 @@ si richiede per {sam}:
 1) Da svolgere subito:
 - Impostare su AD, per il campo "ExpireDate", il valore "{data_fine_piu_uno}"
 
-2) Il giorno {data_fine_piu_uno}:
+2) Il giorno (formato MM/GG/AAAA) {data_fine_piu_uno}:
 
 - Dismissione Casella di posta:
   - Disabilitare invio ad utente (Message Delivery Restrictions)
@@ -430,6 +430,7 @@ Chiudere il task quando tutte le attività sono completate."""
 
 def genera_task_03(sam):
     return f"""
+Il giorno (formato MM/GG/AAAA) {data_fine_piu_uno}:
 Revocare la firma e rimuovere il diritto a richiedere la Firma Digitale alla risorsa {sam}.
 
 Gestire l'asset e il suo stato."""
