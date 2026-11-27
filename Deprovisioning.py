@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import re
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 
 import pandas as pd
 import streamlit as st
@@ -268,8 +268,7 @@ def extract_ad_groups(sam, df):
     if df is None or df.empty:
         return [], [
             "File Estr_MembriGruppi non caricato. "
-            "Il task 04 verrà generato senza il dettaglio "
-            "dei gruppi AD."
+            "Le evidenze relative ai gruppi AD non saranno disponibili."
         ]
 
     member_col = find_col(
@@ -325,14 +324,12 @@ def extract_ad_groups(sam, df):
 # VALIDAZIONE E FORMATTAZIONE DATA
 # ============================================================
 
-def format_datetime(value):
+def format_date_it(value):
     """
-    Formatta una data nel formato richiesto:
-    mm/gg/aaaa 00:00
+    Formatta una data nel formato italiano:
+    GG/MM/AAAA
     """
-    return value.strftime(
-        "%m/%d/%Y 00:00"
-    )
+    return value.strftime("%d/%m/%Y")
 
 
 def calculate_dates(end_date):
@@ -341,15 +338,15 @@ def calculate_dates(end_date):
     di calendario successivo.
 
     Esempio:
-    11/30/2026 -> 12/01/2026 00:00
+    30/11/2026 -> 01/12/2026
     """
     next_date = end_date + timedelta(days=1)
 
-    end_date_formatted = format_datetime(
+    end_date_formatted = format_date_it(
         end_date
     )
 
-    next_date_formatted = format_datetime(
+    next_date_formatted = format_date_it(
         next_date
     )
 
@@ -369,13 +366,13 @@ def genera_task_01(
 ):
     return f"""Ciao, si richiede per l'utenza {sam}:
 
-1. Il giorno (formato MM/GG/AAAA) {data_fine}:
-- Ritirare dall'utente gli asset associati facendolo firmare
-- Dismissione Utenza On-prem AD
+1. Il giorno {data_fine}:
+- Ritirare dall'utente gli asset associati, acquisendo la relativa firma
+- Effettuare la dismissione dell'utenza On-prem AD
 
-2. Deprovisioning PC e consegna in armadio 599
+2. Effettuare il deprovisioning del PC e la consegna nell'armadio 599
 
-Chiudere il task quando tutte le attività sono completate."""
+Chiudere il task quando tutte le attività sono state completate."""
 
 
 # ============================================================
@@ -388,72 +385,59 @@ def genera_task_02(
 ):
     return f"""Ciao,
 
-si richiede per {sam}:
+si richiede per l'utenza {sam}:
 
-1) Da svolgere subito:
-- Impostare su AD, per il campo "ExpireDate", il valore "{data_fine_piu_uno}"
+1. Da svolgere ASAP:
+- Impostare su AD, nel campo "ExpireDate", il valore "{data_fine_piu_uno}"
 
-2) Il giorno (formato MM/GG/AAAA) {data_fine_piu_uno}:
+2. Il giorno {data_fine_piu_uno}:
 
-- Dismissione Casella di posta:
-  - Disabilitare invio ad utente (Message Delivery Restrictions)
-  - Impostare Hide dalla Rubrica
-  - Disabilitare accesso Mailbox (Mailbox features – Disable Protocolli/OWA)
-  - Estrarre il PST (O365 eDiscovery) da archiviare in:
+- Dismissione della casella di posta:
+  - Disabilitare l'invio verso l'utente tramite Message Delivery Restrictions
+  - Nascondere la casella dalla rubrica
+  - Disabilitare l'accesso alla mailbox tramite Mailbox Features, disabilitando protocolli e OWA
+  - Estrarre il PST tramite O365 eDiscovery e archiviarlo nel seguente percorso:
     \\\\nasconsip2....\\backuppst\\03 - backup email cancellate
-    Il file deve essere archiviato in formato 7z con password condivisa.
+  - Archiviare il file in formato 7z utilizzando la password condivisa
 
-- Rimozione profilazione:
-  - Rimuovere tutti i Ruoli assegnati
-  - Rimuovere tutte le applicazioni dall'utenza Azure
-  - Disabilitare l'account di Azure
+- Rimozione della profilazione:
+  - Rimuovere tutti i ruoli assegnati
+  - Rimuovere tutte le applicazioni associate all'utenza Azure
+  - Disabilitare l'account Azure
   - Rimuovere l'abilitazione da tutte le SM, se applicabile
   - Rimuovere l'abilitazione da tutte le DL, se applicabile
   - Rimuovere tutti i gruppi Azure
   - Rimuovere tutti i gruppi AD
   - Cancellare la foto da Azure, se applicabile
-  - Rimuovere il Wi-Fi
+  - Rimuovere l'abilitazione Wi-Fi
 
 - Disabilitare l'utenza di dominio e spostarla nella OU Dismessi/Utenti
 
-- Rimuovere i riferimenti utente dal PC su AD:
-  - unset attributo mobile
-  - unset attributo UPN
-  - unset attributo mail
+- Rimuovere i riferimenti dell'utente dal PC su AD:
+  - Eseguire l'unset dell'attributo mobile
+  - Eseguire l'unset dell'attributo UPN
+  - Eseguire l'unset dell'attributo mail
 
-Chiudere il task quando tutte le attività sono completate."""
+Chiudere il task quando tutte le attività sono state completate."""
 
 
 # ============================================================
 # GENERAZIONE TASK 03
 # ============================================================
 
-def genera_task_03(sam, data_fine_piu_uno):
-    return f"""
-Il giorno (formato MM/GG/AAAA) {data_fine_piu_uno}:
-Revocare la firma e rimuovere il diritto a richiedere la Firma Digitale alla risorsa {sam}.
+def genera_task_03(
+    sam,
+    data_fine_piu_uno
+):
+    return f"""Ciao,
 
-Gestire l'asset e il suo stato."""
+il giorno {data_fine_piu_uno} si richiede di:
 
-    if gruppi_ad:
-        lines.extend([
-            "",
-            "Evidenze trovate nei gruppi AD:"
-        ])
+- Revocare la firma digitale della risorsa {sam}
+- Rimuovere il diritto della risorsa a richiedere la firma digitale
+- Gestire l'asset associato e aggiornare il relativo stato
 
-        for group in gruppi_ad:
-            lines.append(
-                f"- {group}"
-            )
-
-    else:
-        lines.extend([
-            "",
-            "Nessuna evidenza relativa a gruppi AD aggiuntivi "
-            "è stata rilevata."
-        ])
-
-    return "\n".join(lines)
+Chiudere il task quando tutte le attività sono state completate."""
 
 
 # ============================================================
@@ -519,7 +503,7 @@ with col2:
         format="DD/MM/YYYY",
         help=(
             "Il sistema calcolerà automaticamente il giorno "
-            "successivo e lo formatterà come mm/gg/aaaa 00:00."
+            "successivo e formatterà le date come GG/MM/AAAA."
         )
     )
 
@@ -538,7 +522,7 @@ mg_file = st.file_uploader(
     key="mg",
     help=(
         "Il file viene utilizzato esclusivamente per individuare "
-        "i gruppi AD associati all'utente e compilare il task 04."
+        "i gruppi AD associati all'utente."
     )
 )
 
@@ -612,7 +596,7 @@ if st.button(
     )
 
     task_03 = genera_task_03(
-        sam. 
+        sam,
         data_fine_piu_uno_formattata
     )
 
@@ -682,7 +666,6 @@ if st.button(
         key="03"
     )
 
-
     # --------------------------------------------------------
     # Evidenze gruppi AD
     # --------------------------------------------------------
@@ -697,7 +680,6 @@ if st.button(
                 st.write(
                     f"- {group}"
                 )
-
         else:
             st.info(
                 "Nessun gruppo AD aggiuntivo rilevato."
