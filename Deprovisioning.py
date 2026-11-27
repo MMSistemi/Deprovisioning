@@ -612,7 +612,8 @@ if st.button(
     )
 
     task_03 = genera_task_03(
-        sam
+        sam. 
+        data_fine_piu_uno_formattata
     )
 
     # --------------------------------------------------------
